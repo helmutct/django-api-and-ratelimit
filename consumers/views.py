@@ -4,12 +4,13 @@ from django.urls import reverse
 from io import StringIO
 import requests
 import csv
+
 from .models import Consumer
 from .serializers import ConsumerSerializer
-from django_consumer_api.rate_limit_decorator import rate_limit
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework.decorators import api_view
+from django_consumer_api.rate_limit_decorator import rate_limit
 
 class ConsumerPagination(pagination.PageNumberPagination):
     page_size = 10
@@ -18,7 +19,6 @@ class ConsumerListView(generics.ListAPIView):
     serializer_class = ConsumerSerializer
     pagination_class = ConsumerPagination
 
-    @rate_limit(rate=60) # Allow 1 request per minute (60 seconds)
     def get_queryset(self):
         queryset = Consumer.objects.all().order_by('id')
 
@@ -47,8 +47,16 @@ class ConsumerListView(generics.ListAPIView):
         ],
         responses={200: ConsumerSerializer(many=True)}
     )
+    @rate_limit(rate=2)
     def get(self, request, *args, **kwargs):
-        return self.list(request, *args, **kwargs)
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def get_paginated_response(self, data):
         # Constructing the next link for pagination using web linking
@@ -58,39 +66,39 @@ class ConsumerListView(generics.ListAPIView):
             'results': data
         })
 
-    @api_view(['POST']) 
-    @swagger_auto_schema(
-        operation_description="Import data from a CSV file.",
-        responses={200: "Data imported successfully"}
-    )
-    def import_data_from_csv(request):
-        csv_url = "https://drive.google.com/uc?id=1gzh1GczznM8p-qW0UNm4H9HLnydXnf6Q"
-        response = requests.get(csv_url)
-        if response.status_code == 200:
-            try:
-                csv_content = response.text
-                csv_reader = csv.DictReader(StringIO(csv_content))
-                imported_count = 0
-                for row in csv_reader:
-                    # Check if consumer already exists based on a unique identifier
-                    # For example, you can use a combination of fields like 'street' and 'status'
-                    if not Consumer.objects.filter(street=row['id']).exists():
-                        Consumer.objects.create(
-                            id=int(row['id']),
-                            street=row['street'],
-                            status=row['status'],
-                            previous_jobs_count=int(row['previous_jobs_count']),
-                            amount_due=float(row['amount_due']),
-                            lat=float(row['lat']),
-                            lng=float(row['lng'])
-                        )
-                        imported_count += 1
+@api_view(['POST']) 
+@swagger_auto_schema(
+    operation_description="Import data from a CSV file.",
+    responses={200: "Data imported successfully"}
+)
+def import_data_from_csv(request):
+    csv_url = "https://drive.google.com/uc?id=1gzh1GczznM8p-qW0UNm4H9HLnydXnf6Q"
+    response = requests.get(csv_url)
+    if response.status_code == 200:
+        try:
+            csv_content = response.text
+            csv_reader = csv.DictReader(StringIO(csv_content))
+            imported_count = 0
+            for row in csv_reader:
+                # Check if consumer already exists based on a unique identifier
+                # For example, you can use a combination of fields like 'street' and 'status'
+                if not Consumer.objects.filter(street=row['id']).exists():
+                    Consumer.objects.create(
+                        id=int(row['id']),
+                        street=row['street'],
+                        status=row['status'],
+                        previous_jobs_count=int(row['previous_jobs_count']),
+                        amount_due=float(row['amount_due']),
+                        lat=float(row['lat']),
+                        lng=float(row['lng'])
+                    )
+                    imported_count += 1
 
-                if imported_count > 0:
-                    return Response(f"{imported_count} data imported successfully", status=200)
-                else:
-                    return Response("No new data imported", status=200)
-            except Exception as e:
-                return Response(f"Failed to import data: {str(e)}", status=500)
-        else:
-            return Response("Failed to fetch CSV file", status=500)
+            if imported_count > 0:
+                return Response(f"{imported_count} data imported successfully", status=200)
+            else:
+                return Response("No new data imported", status=200)
+        except Exception as e:
+            return Response(f"Failed to import data: {str(e)}", status=500)
+    else:
+        return Response("Failed to fetch CSV file", status=500)
