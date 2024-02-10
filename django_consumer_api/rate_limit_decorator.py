@@ -13,7 +13,7 @@ def rate_limit(rate):
             if count >= rate:
                 return HttpResponseForbidden("Rate limit exceeded")
 
-            cache.set(cache_key, count + 1, timeout=60)  # Assuming 60 seconds timeout
+            cache.set(cache_key, count + 1, timeout=5)  # Assuming 5 seconds timeout
             return view_func(self, *args, **kwargs)
 
         return _wrapped_view

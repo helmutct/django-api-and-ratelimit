@@ -1,6 +1,6 @@
+from django.urls import reverse
 from rest_framework import generics, pagination
 from rest_framework.response import Response
-from django.urls import reverse
 from io import StringIO
 import requests
 import csv
@@ -18,25 +18,6 @@ class ConsumerPagination(pagination.PageNumberPagination):
 class ConsumerListView(generics.ListAPIView):
     serializer_class = ConsumerSerializer
     pagination_class = ConsumerPagination
-
-    def get_queryset(self):
-        queryset = Consumer.objects.all().order_by('id')
-
-        min_previous_jobs_count = self.request.query_params.get('min_previous_jobs_count')
-        max_previous_jobs_count = self.request.query_params.get('max_previous_jobs_count')
-        previous_jobs_count = self.request.query_params.get('previous_jobs_count')
-        status = self.request.query_params.get('status')
-
-        if min_previous_jobs_count is not None:
-            queryset = queryset.filter(previous_jobs_count__gte=min_previous_jobs_count)
-        if max_previous_jobs_count is not None:
-            queryset = queryset.filter(previous_jobs_count__lte=max_previous_jobs_count)
-        if previous_jobs_count is not None:
-            queryset = queryset.filter(previous_jobs_count=previous_jobs_count)
-        if status is not None:
-            queryset = queryset.filter(status=status)
-
-        return queryset
 
     @swagger_auto_schema(
         manual_parameters=[
@@ -57,12 +38,45 @@ class ConsumerListView(generics.ListAPIView):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+    def get_queryset(self):
+        queryset = Consumer.objects.all().order_by('id')
+
+        min_previous_jobs_count = self.request.query_params.get('min_previous_jobs_count')
+        max_previous_jobs_count = self.request.query_params.get('max_previous_jobs_count')
+        previous_jobs_count = self.request.query_params.get('previous_jobs_count')
+        status = self.request.query_params.get('status')
+
+        if min_previous_jobs_count is not None:
+            queryset = queryset.filter(previous_jobs_count__gte=min_previous_jobs_count)
+        if max_previous_jobs_count is not None:
+            queryset = queryset.filter(previous_jobs_count__lte=max_previous_jobs_count)
+        if previous_jobs_count is not None:
+            queryset = queryset.filter(previous_jobs_count=previous_jobs_count)
+        if status is not None:
+            queryset = queryset.filter(status=status)
+
+        return queryset
 
     def get_paginated_response(self, data):
-        # Constructing the next link for pagination using web linking
-        next_url = self.request.build_absolute_uri(reverse('consumer-list')) + '?' + self.request.META['QUERY_STRING']
+        # Constructing the next and prev links for pagination using web linking
+        next_url = None
+        prev_url = None
+        base_url = self.request.build_absolute_uri(reverse('consumer-list'))
+        query_params = self.request.GET.copy()  # Get a copy of current query parameters
+
+        if self.paginator.get_next_link():
+            next_page_number = self.paginator.page.number + 1
+            query_params['page'] = next_page_number
+            next_url = f"{base_url}?{query_params.urlencode()}"
+        if self.paginator.get_previous_link():
+            previous_page_number = self.paginator.page.number - 1
+            query_params['page'] = previous_page_number
+            prev_url = f"{base_url}?{query_params.urlencode()}"
+
         return Response({
-            'next': next_url if self.paginator.get_next_link() else None,
+            'next': next_url,
+            'prev': prev_url,
             'results': data
         })
 
